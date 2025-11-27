@@ -1,12 +1,14 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, RouterOutlet } from '@angular/router';
-import { AuthenticationService } from './auth/authentication.service';
+import { AuthenticationService } from './authentication.service';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [CommonModule, RouterOutlet, RouterModule],
+  providers: [AuthenticationService],
   template: `
     <div class="min-h-screen bg-gray-100">
       <!-- Barra de navegación -->
@@ -39,20 +41,22 @@ import { AuthenticationService } from './auth/authentication.service';
   styles: []
 })
 export class AppComponent implements OnInit {
-  title = 'Sistema de Gestión de Usuarios';
+  title = 'Skill Class';
   isAuthenticated = false;
+  private authService = inject(AuthenticationService);
+  private router = inject(Router);
 
-  constructor(
-    private authService: AuthenticationService,
-    private router: Router
-  ) {}
-
-  ngOnInit() {
+  constructor() {
     // Suscribirse a los cambios de autenticación
-    this.authService.currentUser.subscribe(user => {
-      this.isAuthenticated = !!user;
-    });
+    this.authService.currentUser$
+      .pipe(takeUntilDestroyed())
+      .subscribe(user => {
+        this.isAuthenticated = !!user;
+      });
   }
+
+  ngOnInit() {}
+  
 
   logout() {
     this.authService.logout();

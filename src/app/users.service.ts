@@ -7,10 +7,16 @@ import { Observable, catchError, throwError } from 'rxjs';
 })
 export class UsersService {
     private http = inject(HttpClient);
-    private apiUrl = 'http://localhost:3000/api/users'; // Asegúrate de que esta URL sea correcta
+    private apiUrl = 'http://localhost:3000/api/usuarios';
 
     getUsers(): Observable<any[]> {
         return this.http.get<any[]>(this.apiUrl).pipe(
+            catchError(this.handleError)
+        );
+    }
+
+    getCursosInscritos(userId: string): Observable<any[]> {
+        return this.http.get<any[]>(`${this.apiUrl}/${userId}/cursos-inscritos`).pipe(
             catchError(this.handleError)
         );
     }

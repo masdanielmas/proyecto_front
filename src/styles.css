@@ -1,10 +1,10 @@
+/* Importación de estilos de Toastr */
+@import 'ngx-toastr/toastr';
+
 /* Tailwind CSS */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Importación de estilos de Toastr */
-@import 'ngx-toastr/toastr';
 
 /* Estilos base */
 :root {

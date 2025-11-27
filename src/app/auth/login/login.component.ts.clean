@@ -3,7 +3,7 @@ import { FormBuilder, FormGroup, Validators, ReactiveFormsModule, FormControl, A
 import { Router, RouterModule } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { AuthenticationService } from '../../authentication.service';
-import { first, finalize } from 'rxjs/operators';
+import { first } from 'rxjs/operators';
 
 type FormTab = 'login' | 'register';
 
@@ -82,16 +82,13 @@ export class LoginComponent implements OnInit {
           validators: [Validators.required, Validators.email] 
         }),
         nombre: new FormControl('', { 
-          nonNullable: true,
-          validators: [Validators.required]
+          nonNullable: true
         }),
         apellido: new FormControl('', { 
-          nonNullable: true,
-          validators: [Validators.required]
+          nonNullable: true
         }),
-        rol: new FormControl('estudiante', { 
-          nonNullable: true,
-          validators: [Validators.required]
+        rol: new FormControl('usuario', { 
+          nonNullable: true
         }),
         password: new FormControl('', { 
           nonNullable: true, 
@@ -129,7 +126,7 @@ export class LoginComponent implements OnInit {
   ngOnInit(): void {
     // Redirigir al home si ya está autenticado
     if (this.authService.isAuthenticated()) {
-      this.navigateByRole();
+      this.router.navigate(['/']);
     }
   }
 
@@ -157,31 +154,14 @@ export class LoginComponent implements OnInit {
   public onLogin(): void {
     this.submitted = true;
     this.error = '';
-    // Asegurar actualización de valores y estado
-    this.loginForm.markAllAsTouched();
-    this.loginForm.updateValueAndValidity({ onlySelf: false, emitEvent: true });
 
     // Detener si el formulario es inválido
     if (this.loginForm.invalid) {
-      // Marcar controles para mostrar errores y depurar
-      Object.values(this.loginForm.controls).forEach(c => c.markAsTouched());
-      console.warn('LoginForm inválido:', {
-        value: this.loginForm.getRawValue(),
-        status: this.loginForm.status,
-        errors: {
-          usuario: this.loginForm.controls.usuario.errors,
-          password: this.loginForm.controls.password.errors,
-        }
-      });
       return;
     }
 
     this.loading = true;
-    let { usuario, password } = this.loginForm.getRawValue();
-    usuario = (usuario || '').trim();
-    password = (password || '').trim();
-    // Actualizar el formulario con los valores normalizados
-    this.loginForm.patchValue({ usuario, password });
+    const { usuario, password } = this.loginForm.getRawValue();
     
     if (!usuario || !password) {
       this.error = 'Por favor ingresa usuario y contraseña';
@@ -189,21 +169,15 @@ export class LoginComponent implements OnInit {
       return;
     }
 
-    // Enviar la contraseña como 'clave' para coincidir con el backend
-    this.authService.login({ 
-      usuario, 
-      password: password // El servicio se encargará de mapear 'password' a 'clave' si es necesario
-    })
-      .pipe(first(), finalize(() => { this.loading = false; }))
+    this.authService.login({ usuario, password })
+      .pipe(first())
       .subscribe({
-        next: (user) => {
-          this.navigateByRoleFrom(user as any);
+        next: () => {
+          this.router.navigate(['/']);
         },
         error: (error: any) => {
-          // Mostrar mensaje de error específico del backend o uno genérico
-          this.error = error?.error?.message || 
-                     error?.error?.error || 
-                     'Error al iniciar sesión. Por favor, verifica tus credenciales e inténtalo de nuevo.';
+          this.error = error?.error?.message || 'Error al iniciar sesión. Por favor, inténtalo de nuevo.';
+          this.loading = false;
         }
       });
   }
@@ -215,87 +189,48 @@ export class LoginComponent implements OnInit {
     this.submitted = true;
     this.registerError = '';
 
-    // Marcar todos los campos como tocados para mostrar los mensajes de error
-    Object.values(this.registerForm.controls).forEach(control => {
-      control.markAsTouched();
-    });
-
     // Detener si el formulario es inválido
     if (this.registerForm.invalid) {
-      this.registerError = 'Por favor completa todos los campos requeridos correctamente';
       return;
     }
 
     this.loading = true;
-    
-    const { usuario, correo, nombre, apellido, password, confirmPassword } = this.registerForm.getRawValue();
+    const { usuario, correo, nombre, apellido, rol, password } = this.registerForm.getRawValue();
 
-    // Validaciones adicionales
-    if (password !== confirmPassword) {
-      this.registerError = 'Las contraseñas no coinciden';
+    if (!usuario || !correo || !password) {
+      this.registerError = 'Por favor completa los campos requeridos';
       this.loading = false;
       return;
     }
 
-    // Preparar los datos para el registro con el formato exacto requerido
-    const datosRegistro = { 
-      usuario: usuario.trim(),
-      correo: correo.trim(),
-      nombre: nombre.trim(),
-      apellido: apellido.trim(),
-      clave: password,
-      rol: 'estudiante' // Rol fijo como 'estudiante'
-    };
-
-    console.log('Intentando registrar usuario:', datosRegistro);
-
-    // Llamar al servicio de autenticación
-    this.authService.register(datosRegistro)
+    // Llamar al servicio de autenticación para registrar al usuario
+    this.authService.register({ 
+      usuario, 
+      correo, 
+      nombre: nombre || '', 
+      apellido: apellido || '', 
+      rol: rol || 'usuario', 
+      password 
+    })
       .pipe(first())
       .subscribe({
-        next: (response) => {
-          console.log('Registro exitoso:', response);
-          // Iniciar sesión automáticamente después del registro exitoso
+        next: () => {
+          // Iniciar sesión automáticamente después del registro
           this.authService.login({ usuario, password })
-            .pipe(first(), finalize(() => { this.loading = false; }))
+            .pipe(first())
             .subscribe({
-              next: (user2) => {
-                this.navigateByRoleFrom(user2 as any);
+              next: () => {
+                this.router.navigate(['/']);
               },
-              error: (loginError) => {
-                console.error('Error al iniciar sesión después del registro:', loginError);
-                // Si hay un error al iniciar sesión, redirigir a la página de login
+              error: () => {
                 this.router.navigate(['/login']);
               }
             });
         },
-        error: (error) => {
-          console.error('Error en el registro:', error);
-          this.registerError = error?.error?.message || 
-                            error?.error?.error || 
-                            'Error al registrar el usuario. Por favor, inténtalo de nuevo.';
+        error: (error: any) => {
+          this.registerError = error?.error?.message || 'Error al registrar el usuario. Por favor, inténtalo de nuevo.';
           this.loading = false;
         }
       });
-  }
-  
-  private navigateByRole(): void {
-    const user = this.authService.currentUserValue as any;
-    const role = user?.rol;
-    if (role === 'instructor' || role === 'profesor') {
-      this.router.navigate(['/profesor']);
-    } else {
-      this.router.navigate(['/estudiante']);
-    }
-  }
-
-  private navigateByRoleFrom(user: any): void {
-    const role = user?.rol;
-    console.log('navigateByRoleFrom -> role:', role, 'user:', user);
-    if (role === 'instructor' || role === 'profesor') {
-      this.router.navigate(['/profesor']);
-    } else {
-      this.router.navigate(['/estudiante']);
-    }
   }
 }

@@ -1,105 +1,187 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { UsersService } from './users.service';
-import { finalize, catchError } from 'rxjs/operators';
-import { of } from 'rxjs';
+import { Router } from '@angular/router';
+import { BehaviorSubject } from 'rxjs';
+import { finalize } from 'rxjs/operators';
+import { HttpClient } from '@angular/common/http';
+import { usersFunctions } from './users.functions';
 
-interface Usuario {
-  id: number;
-  usuario: string;
-  nombre: string;
-  apellido: string;
-  correo: string;
-  rol: string;
-}
+// Estado del componente de usuarios
+let usersState = {
+  usuarios: [] as any[],
+  cargando: false,
+  error: '',
+  searchTerm: ''
+};
 
+// Observable del estado
+const usersStateSubject = new BehaviorSubject(usersState);
+export const usersState$ = usersStateSubject.asObservable();
+
+// Funciones puras del componente de usuarios
+export const usersComponentFunctions = {
+  // Obtener estado actual
+  getUsersState: () => usersState,
+
+  // Obtener observable del estado
+  getUsersState$: () => usersState$,
+
+  // Cargar usuarios
+  cargarUsuarios: (http: HttpClient) => {
+    usersState.cargando = true;
+    usersState.error = '';
+    usersStateSubject.next({ ...usersState });
+
+    usersFunctions.getUsers(http).pipe(
+      finalize(() => {
+        usersState.cargando = false;
+        usersStateSubject.next({ ...usersState });
+      })
+    ).subscribe({
+      next: (data) => {
+        usersState.usuarios = data;
+        usersStateSubject.next({ ...usersState });
+      },
+      error: (error) => {
+        usersState.error = 'Error al cargar los usuarios. Por favor, intente nuevamente.';
+        console.error('Error al cargar usuarios:', error);
+        usersStateSubject.next({ ...usersState });
+      }
+    });
+  },
+
+  // Editar usuario
+  editarUsuario: (router: Router, usuario: any) => {
+    const id = usuario?.id ?? usuario?._id ?? usuario?.idUsuario;
+    if (id === undefined || id === null) {
+      console.error('Editar usuario: ID indefinido', usuario);
+      return;
+    }
+    router.navigate(['/usuarios', 'editar', id]);
+  },
+
+  // Eliminar usuario
+  eliminarUsuario: (http: HttpClient, id: number) => {
+    if (!confirm('¿Está seguro de que desea eliminar este usuario?')) {
+      return;
+    }
+
+    usersState.cargando = true;
+    usersStateSubject.next({ ...usersState });
+
+    usersFunctions.eliminarUsuario(http, id).pipe(
+      finalize(() => {
+        usersState.cargando = false;
+        usersStateSubject.next({ ...usersState });
+      })
+    ).subscribe({
+      next: () => {
+        usersState.usuarios = usersState.usuarios.filter(u => u.id !== id);
+        usersStateSubject.next({ ...usersState });
+        alert('Usuario eliminado exitosamente');
+      },
+      error: (error) => {
+        usersState.error = 'Error al eliminar el usuario. Por favor, intente nuevamente.';
+        console.error('Error al eliminar usuario:', error);
+        usersStateSubject.next({ ...usersState });
+      }
+    });
+  },
+
+  // Buscar usuarios
+  buscarUsuarios: (http: HttpClient, termino: string) => {
+    usersState.searchTerm = termino;
+    usersState.cargando = true;
+    usersStateSubject.next({ ...usersState });
+
+    if (termino.trim() === '') {
+      usersComponentFunctions.cargarUsuarios(http);
+      return;
+    }
+
+    usersFunctions.buscarUsuarios(http, termino).pipe(
+      finalize(() => {
+        usersState.cargando = false;
+        usersStateSubject.next({ ...usersState });
+      })
+    ).subscribe({
+      next: (data) => {
+        usersState.usuarios = data;
+        usersStateSubject.next({ ...usersState });
+      },
+      error: (error) => {
+        usersState.error = 'Error al buscar usuarios. Por favor, intente nuevamente.';
+        console.error('Error al buscar usuarios:', error);
+        usersStateSubject.next({ ...usersState });
+      }
+    });
+  },
+
+  // Resetear estado
+  resetState: () => {
+    usersState = {
+      usuarios: [],
+      cargando: false,
+      error: '',
+      searchTerm: ''
+    };
+    usersStateSubject.next({ ...usersState });
+  },
+
+  // Filtrar usuarios locales
+  filtrarUsuarios: () => {
+    if (!usersState.searchTerm.trim()) {
+      return usersState.usuarios;
+    }
+    return usersState.usuarios.filter(usuario =>
+      usuario.nombre?.toLowerCase().includes(usersState.searchTerm.toLowerCase()) ||
+      usuario.email?.toLowerCase().includes(usersState.searchTerm.toLowerCase()) ||
+      usuario.username?.toLowerCase().includes(usersState.searchTerm.toLowerCase())
+    );
+  }
+};
+
+// Componente funcional
 @Component({
   selector: 'app-users',
   standalone: true,
-  imports: [CommonModule],
+  imports: [
+    CommonModule
+  ],
   templateUrl: './users.component.html',
-  styles: [`
-    .spinner {
-      border: 3px solid rgba(0, 0, 0, 0.1);
-      border-radius: 50%;
-      border-top: 3px solid #3b82f6;
-      width: 24px;
-      height: 24px;
-      animation: spin 1s linear infinite;
-      margin: 0 auto;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-  `]
+  styleUrls: ['./users.component.css']
 })
 export class UsersComponent implements OnInit {
-  usuarios: Usuario[] = [];
-  cargando = true;
-  eliminandoId: number | null = null;
+  private http = inject(HttpClient);
+  private router = inject(Router);
 
-  constructor(private usersService: UsersService) {}
+  usersState$ = usersComponentFunctions.getUsersState$();
+  state = usersComponentFunctions.getUsersState();
 
-  ngOnInit(): void {
-    this.cargarUsuarios();
+  ngOnInit() {
+    this.usersState$.subscribe(state => {
+      this.state = state;
+    });
+    usersComponentFunctions.cargarUsuarios(this.http);
   }
 
-  cargarUsuarios(): void {
-    this.cargando = true;
-    this.usersService.getUsers()
-      .pipe(
-        finalize(() => this.cargando = false),
-        catchError(error => {
-          console.error('Error al cargar usuarios:', error);
-          // Aquí podrías mostrar un mensaje de error al usuario
-          return of([]);
-        })
-      )
-      .subscribe({
-        next: (data) => {
-          this.usuarios = data;
-          console.log('Usuarios cargados:', data);
-        },
-        error: (error) => {
-          console.error('Error al cargar usuarios:', error);
-          alert('Error al cargar los usuarios. Por favor, intente nuevamente.');
-        }
-      });
+  cargarUsuarios() {
+    usersComponentFunctions.cargarUsuarios(this.http);
   }
 
-  editarUsuario(usuario: Usuario): void {
-    // Aquí podrías implementar la lógica para editar el usuario
-    // Por ejemplo, abrir un modal o navegar a una ruta de edición
-    console.log('Editando usuario:', usuario);
-    alert(`Modo edición para el usuario: ${usuario.nombre} ${usuario.apellido}`);
-    
-    // Ejemplo de implementación con un modal (descomenta y adapta según necesites):
-    // this.dialog.open(EditarUsuarioComponent, {
-    //   data: { usuario }
-    // }).afterClosed().subscribe(resultado => {
-    //   if (resultado) {
-    //     this.cargarUsuarios(); // Recargar la lista si se realizaron cambios
-    //   }
-    // });
+  editarUsuario(usuario: any) {
+    usersComponentFunctions.editarUsuario(this.router, usuario);
   }
 
-  eliminarUsuario(id: number): void {
-    if (confirm('¿Estás seguro de que deseas eliminar este usuario?')) {
-      this.eliminandoId = id;
-      this.usersService.eliminarUsuario(id)
-        .pipe(finalize(() => this.eliminandoId = null))
-        .subscribe({
-          next: () => {
-            this.usuarios = this.usuarios.filter(u => u.id !== id);
-            // Aquí podrías mostrar un mensaje de éxito
-            alert('Usuario eliminado correctamente');
-          },
-          error: (error) => {
-            console.error('Error al eliminar usuario:', error);
-            alert('Ocurrió un error al intentar eliminar el usuario');
-          }
-        });
-    }
+  eliminarUsuario(id: number) {
+    usersComponentFunctions.eliminarUsuario(this.http, id);
+  }
+
+  buscarUsuarios(termino: string) {
+    usersComponentFunctions.buscarUsuarios(this.http, termino);
+  }
+
+  get usuariosFiltrados() {
+    return usersComponentFunctions.filtrarUsuarios();
   }
 }
